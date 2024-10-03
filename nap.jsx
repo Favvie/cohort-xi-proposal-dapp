@@ -8,23 +8,21 @@ import { Contract } from "ethers";
 import useRunners from "./hooks/useRunners";
 import { Interface } from "ethers";
 import ABI from "./ABI/proposal.json";
-import { toast } from "react-toastify";
 
 const multicallAbi = [
     "function tryAggregate(bool requireSuccess, (address target, bytes callData)[] calls) returns ((bool success, bytes returnData)[] returnData)",
 ];
 
 function App() {
+    // get contract from use contracts, pass true to get contract with signer provider
     const readOnlyProposalContract = useContract(true);
+
     const { readOnlyProvider } = useRunners();
     const [proposals, setProposals] = useState([]);
-
-    console.log(proposals)
 
     const fetchProposals = useCallback(async () => {
         if (!readOnlyProposalContract) return;
 
- 
         const multicallContract = new Contract(
             import.meta.env.VITE_MULTICALL_ADDRESS,
             multicallAbi,
@@ -57,8 +55,7 @@ function App() {
                 itf.decodeFunctionResult("proposals", res.returnData)
             );
 
-            const data = decodedResults.map((proposalStruct, index) => ({
-                proposalId: proposalsIds[index],
+            const data = decodedResults.map((proposalStruct) => ({
                 description: proposalStruct.description,
                 amount: proposalStruct.amount,
                 minRequiredVote: proposalStruct.minVotesToPass,
@@ -73,56 +70,31 @@ function App() {
         }
     }, [readOnlyProposalContract, readOnlyProvider]);
 
-    const handleVote = async (proposalId) => {
-        console.log(proposalId)
-        if(readOnlyProposalContract) {
-            const tx = await readOnlyProposalContract.vote(proposalId)
+    useEffect(() => {
+        if (readOnlyProposalContract) {
+            const listener = () => {
+                fetchProposals();
+            };
 
-            const receipt = await tx.wait();
-            
-            console.log("tx", tx)
+            readOnlyProposalContract.on("ProposalCreated", listener);
 
-            readOnlyProposalContract.on("Voted", fetchProposals)
-
-            
-
-            if (receipt.status === 1) {
-                toast.success("Voted successful");
-                return;
-            } else {
-            toast.error("Proposal Creation failed");
-            }
+            // Clean up the event listener when the component unmounts or the contract changes
+            return () => {
+                readOnlyProposalContract.off("ProposalCreated", listener);
+            }; 
         }
-
-    }
+    }, [readOnlyProposalContract]);
 
     useEffect(() => {
         fetchProposals();
-
-        if(readOnlyProposalContract) {
-        readOnlyProposalContract.on("ProposalCreated", fetchProposals);
-
-        } return () => {
-            
-            if(readOnlyProposalContract) {
-            readOnlyProposalContract.off("ProposalCreated", fetchProposals);
-            }
-
-             if(readOnlyProposalContract) {
-            readOnlyProposalContract.off("Voted", fetchProposals);
-            }
-        }
-
-       
-
-    }, [readOnlyProposalContract]);
+    }, [fetchProposals]);
 
     return (
         <Layout>
             <Box className="flex justify-end p-4">
                 <CreateProposalModal />
             </Box>
-            <Proposals proposals={proposals} handleVote={handleVote}/>
+            <Proposals proposals={proposals} />
         </Layout>
     );
 }
